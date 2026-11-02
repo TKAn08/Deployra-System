@@ -8,7 +8,10 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.regex.Pattern;
 
-/** Đọc/ghi biến môi trường của service. Giá trị lưu trong DB luôn ở dạng đã mã hoá. */
+/**
+ * Đọc/ghi biến môi trường của service. Giá trị lưu trong DB luôn ở dạng đã mã
+ * hoá.
+ */
 @Service
 public class EnvVariableService {
 
@@ -36,6 +39,15 @@ public class EnvVariableService {
                 });
         variable.setValueEncrypted(cipher.encrypt(plainValue));
         return variables.save(variable);
+    }
+
+    @Transactional(readOnly = true)
+    public java.util.Set<String> keysOf(Long serviceId) {
+        java.util.Set<String> result = new java.util.HashSet<>();
+        for (EnvVariable v : variables.findByServiceId(serviceId)) {
+            result.add(v.getVarKey());
+        }
+        return result;
     }
 
     /** Toàn bộ biến đã giải mã, dùng khi khởi động container. Không trả ra API. */

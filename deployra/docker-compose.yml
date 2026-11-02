@@ -10,7 +10,7 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U deployra -d deployra"]
+      test: [ "CMD-SHELL", "pg_isready -U deployra -d deployra" ]
       interval: 5s
       timeout: 3s
       retries: 10

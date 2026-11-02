@@ -19,10 +19,6 @@ import lombok.Setter;
 
 import java.time.Instant;
 
-/**
- * File zip mã nguồn người dùng upload. Chỉ lưu đường dẫn trong kho ({@code objectKey}),
- * không lưu thông tin truy cập S3: IAM Role / biến môi trường lo việc đó.
- */
 @Entity
 @Table(name = "source_uploads")
 @Getter
@@ -30,7 +26,9 @@ import java.time.Instant;
 @NoArgsConstructor
 public class SourceUpload {
 
-    public enum StorageBackend { S3, R2, LOCAL }
+    public enum StorageBackend {
+        S3, R2, LOCAL
+    }
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
