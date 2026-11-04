@@ -3,7 +3,6 @@ package com.paas.deployra.deploy;
 import com.paas.deployra.paas.AppService;
 import com.paas.deployra.paas.Deployment;
 import com.paas.deployra.paas.SourceUpload;
-import com.paas.deployra.paas.Deployment.Trigger;
 
 /**
  * Hợp đồng giữa API (Người 3), webhook, rollback và deploy engine (Người 1).

@@ -1,3 +1,5 @@
+File thứ 2
+
 # Tổng hợp thay đổi – Deployra-System (nhánh `TranKhanhAn`)
 
 Tài liệu này tóm tắt toàn bộ phần đã đọc, đã sửa và đã kiểm chứng trong repo

@@ -12,10 +12,6 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 @ActiveProfiles("test")
 class DeployraApplicationTests {
 
-	// TODO: bỏ các mock này khi đã có bean thật. Hiện chưa có class nào implement
-	// ContainerRuntime, còn GitSourceFetcher và ZipSourceExtractor chưa được khai
-	// báo thành bean, nên DeploymentService không có đủ dependency để Spring khởi
-	// động.
 	@MockitoBean
 	ContainerRuntime containerRuntime;
 

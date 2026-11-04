@@ -8,6 +8,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Set;
 import java.util.regex.Pattern;
 
 /**
@@ -36,6 +37,9 @@ public class EnvVariableService {
         this.variables = variables;
         this.cipher = cipher;
         this.services = services;
+    }
+
+    public record EnvPair(String key, String value) {
     }
 
     /**
@@ -109,5 +113,19 @@ public class EnvVariableService {
     @Transactional
     public void delete(Long serviceId, String key) {
         variables.findByServiceIdAndVarKey(serviceId, key).ifPresent(variables::delete);
+    }
+
+    @Transactional(readOnly = true)
+    public Set<String> keysOfForUser(Long userId, Long serviceId) {
+        services.findByIdAndProjectOwnerIdAndDeletedAtIsNull(serviceId, userId)
+                .orElseThrow(() -> new NotFoundException("Không tìm thấy service"));
+        return keysOf(serviceId);
+    }
+
+    @Transactional
+    public void deleteForUser(Long userId, Long serviceId, String key) {
+        services.findByIdAndProjectOwnerIdAndDeletedAtIsNull(serviceId, userId)
+                .orElseThrow(() -> new NotFoundException("Không tìm thấy service"));
+        delete(serviceId, key);
     }
 }

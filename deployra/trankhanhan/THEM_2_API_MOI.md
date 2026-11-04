@@ -1,3 +1,5 @@
+File 3
+
 Luồng GitHub được tách thành các bước riêng. Bước "kiểm tra bằng clone thật" đã bỏ theo yêu cầu, nên chỉ còn lưu repo, lưu env rồi chạy. Hai API không tạo class service mới, mà dùng lại class đã có cho đúng chỗ:
 
 API	Controller	Logic nằm ở
