@@ -4,9 +4,14 @@ import com.paas.deployra.account.UserRepository;
 import com.paas.deployra.common.InvalidRequestException;
 import com.paas.deployra.common.NotFoundException;
 import com.paas.deployra.deploy.DeploymentServiceInterface;
+import com.paas.deployra.deploy.EnvFileImporter;
+import com.paas.deployra.deploy.GitSourceFetcher;
+import com.paas.deployra.deploy.SourceFetchException;
 import com.paas.deployra.entitlement.EntitlementService;
 import com.paas.deployra.storage.SourceStorage;
 import com.paas.deployra.storage.StorageException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -24,25 +29,31 @@ import java.util.Locale;
 import java.util.UUID;
 
 /**
- * Lớp nằm giữa API và phần lưu/deploy: điều phối việc nhận một file zip.
+ * Lớp nằm giữa API và phần lưu/deploy. Hai việc tách riêng:
  *
- * <p>
- * Thứ tự: kiểm quyền sở hữu service, kiểm tra file, kiểm hạn mức, ghi vào kho,
- * lưu dòng
- * {@code source_uploads}, rồi xếp hàng deploy. Controller chỉ việc lấy
- * {@code userId} và file từ request
- * rồi gọi {@link #uploadZip}.
+ * <ul>
+ * <li>{@link #uploadZip}: nhận và lưu file zip (kiểm quyền sở hữu service, kiểm
+ * tra file, kiểm hạn mức, ghi vào kho, lưu dòng {@code source_uploads}). Chỉ
+ * lưu,
+ * <b>không</b> chạy.</li>
+ * <li>{@link #setRepo}: lưu repo GitHub của service (cũng chỉ lưu, không
+ * chạy).</li>
+ * <li>{@link #deployUpload} / {@link #deployFromGit}: xếp hàng một deploy từ
+ * zip đã
+ * upload hoặc từ repo GitHub của service. Việc build và run do worker làm
+ * nền.</li>
+ * </ul>
  *
  * <p>
  * Cố ý <b>không</b> đặt {@code @Transactional} cho cả lớp: dòng
- * {@code source_uploads} phải commit
- * trước khi {@link DeploymentServiceInterface#enqueue} chạy, nếu không worker
- * có thể đọc
- * không thấy upload.
- * Nếu bước sau lỗi thì file và dòng đã tạo được dọn lại ở đây.
+ * {@code source_uploads} phải commit trước khi
+ * {@link DeploymentServiceInterface#enqueue}
+ * chạy, nếu không worker có thể đọc không thấy upload.
  */
 @Service
 public class SourceUploadService {
+
+    private static final Logger log = LoggerFactory.getLogger(SourceUploadService.class);
 
     /** Bốn byte đầu của file zip thông thường ("PK\3\4"). */
     private static final byte[] ZIP_MAGIC = { 'P', 'K', 3, 4 };
@@ -53,6 +64,8 @@ public class SourceUploadService {
     private final SourceStorage storage;
     private final EntitlementService entitlements;
     private final DeploymentServiceInterface deployments;
+    private final EnvFileImporter envFileImporter;
+    private final GitSourceFetcher gitFetcher;
     private final Clock clock;
     private final Duration retention;
 
@@ -62,6 +75,8 @@ public class SourceUploadService {
             SourceStorage storage,
             EntitlementService entitlements,
             DeploymentServiceInterface deployments,
+            EnvFileImporter envFileImporter,
+            GitSourceFetcher gitFetcher,
             Clock clock,
             @Value("${deployra.upload.retention-days:30}") long retentionDays) {
         this.services = services;
@@ -70,11 +85,10 @@ public class SourceUploadService {
         this.storage = storage;
         this.entitlements = entitlements;
         this.deployments = deployments;
+        this.envFileImporter = envFileImporter;
+        this.gitFetcher = gitFetcher;
         this.clock = clock;
         this.retention = Duration.ofDays(retentionDays);
-    }
-
-    public record Result(SourceUpload upload, Deployment deployment) {
     }
 
     /**
@@ -87,12 +101,8 @@ public class SourceUploadService {
      *                  tự khai
      * @param data      nội dung file
      */
-    public Result uploadZip(Long userId, Long serviceId, String filename, long sizeBytes, InputStream data) {
-        AppService service = services.findByIdAndProjectOwnerIdAndDeletedAtIsNull(serviceId, userId)
-                .orElseThrow(() -> new NotFoundException("Không tìm thấy service"));
-        if (service.getType() != AppService.Type.APP) {
-            throw new InvalidRequestException("Service kiểu database không nhận mã nguồn");
-        }
+    public SourceUpload uploadZip(Long userId, Long serviceId, String filename, long sizeBytes, InputStream data) {
+        AppService service = requireOwnedAppService(userId, serviceId);
         if (filename == null || !filename.toLowerCase(Locale.ROOT).endsWith(".zip")) {
             throw new InvalidRequestException("Chỉ nhận file .zip");
         }
@@ -104,34 +114,97 @@ public class SourceUploadService {
         String key = "uploads/" + userId + "/" + UUID.randomUUID() + ".zip";
         String sha256 = store(key, sizeBytes, data);
 
-        SourceUpload upload;
+        SourceUpload saved;
         try {
-            upload = new SourceUpload();
+            SourceUpload upload = new SourceUpload();
             upload.setUser(users.getReferenceById(userId));
             upload.setStorageBackend(storage.backend());
             upload.setObjectKey(key);
             upload.setSizeBytes(sizeBytes);
             upload.setSha256(sha256);
             upload.setExpiresAt(clock.instant().plus(retention));
-            upload = uploads.save(upload);
+            saved = uploads.save(upload);
         } catch (RuntimeException e) {
             discard(key);
             throw e;
         }
 
-        try {
-            Deployment deployment = deployments.enqueue(service, Deployment.Trigger.MANUAL, upload);
-            return new Result(upload, deployment);
-        } catch (RuntimeException e) {
-            discard(key);
-            try {
-                upload.setDeletedAt(clock.instant());
-                uploads.save(upload);
-            } catch (RuntimeException inner) {
-                e.addSuppressed(inner);
-            }
-            throw e;
+        importEnvKeys(service, key);
+        return saved;
+    }
+
+    /**
+     * Đọc tên biến trong {@code .env}/{@code .env.example} của zip vừa lưu và tạo
+     * biến
+     * (giá trị rỗng) cho service. Best-effort: lỗi ở đây không được làm hỏng việc
+     * upload đã thành công.
+     */
+    private void importEnvKeys(AppService service, String key) {
+        try (InputStream in = storage.open(key)) {
+            envFileImporter.importFromZip(service, in,
+                    line -> log.info("Upload zip, service {}: {}", service.getId(), line));
+        } catch (IOException | RuntimeException e) {
+            log.warn("Upload zip, service {}: không import được biến môi trường — {}",
+                    service.getId(), e.getMessage());
         }
+    }
+
+    /**
+     * Xếp hàng deploy từ một file zip đã upload trước đó. Chỉ trả về deployment ở
+     * trạng thái {@code QUEUED}; build và run chạy nền.
+     */
+    public Deployment deployUpload(Long userId, Long serviceId, Long uploadId) {
+        AppService service = requireOwnedAppService(userId, serviceId);
+        SourceUpload upload = uploads.findByIdAndUserIdAndDeletedAtIsNull(uploadId, userId)
+                .orElseThrow(() -> new NotFoundException("Không tìm thấy bản upload"));
+        if (upload.getExpiresAt() != null && upload.getExpiresAt().isBefore(clock.instant())) {
+            throw new InvalidRequestException("Bản upload đã hết hạn");
+        }
+        return deployments.enqueue(service, Deployment.Trigger.MANUAL, upload);
+    }
+
+    /**
+     * Lưu repo GitHub cho service (thay thế cấu hình repo cũ). Chỉ lưu, không clone
+     * hay chạy.
+     *
+     * @param branch null hoặc rỗng nghĩa là dùng branch mặc định của repo
+     */
+    public AppService setRepo(Long userId, Long serviceId, String repoUrl, String branch) {
+        AppService service = requireOwnedAppService(userId, serviceId);
+        if (repoUrl == null || repoUrl.isBlank()) {
+            throw new InvalidRequestException("Thiếu repoUrl");
+        }
+        String url;
+        String safeBranch;
+        try {
+            // cùng bộ kiểm tra mà lúc deploy dùng: chỉ https, không user/mật khẩu,
+            // chặn địa chỉ nội bộ (có phân giải DNS)
+            url = gitFetcher.validateRepoUrl(repoUrl).toString();
+            safeBranch = gitFetcher.requireBranch(branch);
+        } catch (SourceFetchException e) {
+            throw new InvalidRequestException(e.getMessage());
+        }
+        service.setRepoUrl(url);
+        service.setBranch(safeBranch);
+        return services.save(service);
+    }
+
+    /** Xếp hàng deploy từ repo GitHub (repoUrl + branch) đang lưu trong service. */
+    public Deployment deployFromGit(Long userId, Long serviceId) {
+        AppService service = requireOwnedAppService(userId, serviceId);
+        if (service.getRepoUrl() == null || service.getRepoUrl().isBlank()) {
+            throw new InvalidRequestException("Service chưa cấu hình repo GitHub");
+        }
+        return deployments.enqueue(service, Deployment.Trigger.MANUAL);
+    }
+
+    private AppService requireOwnedAppService(Long userId, Long serviceId) {
+        AppService service = services.findByIdAndProjectOwnerIdAndDeletedAtIsNull(serviceId, userId)
+                .orElseThrow(() -> new NotFoundException("Không tìm thấy service"));
+        if (service.getType() != AppService.Type.APP) {
+            throw new InvalidRequestException("Service kiểu database không nhận mã nguồn");
+        }
+        return service;
     }
 
     /** Kiểm tra đúng là zip, ghi vào kho và trả về SHA-256 của nội dung. */

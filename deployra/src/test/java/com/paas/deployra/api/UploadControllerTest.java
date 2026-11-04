@@ -4,9 +4,7 @@ import com.paas.deployra.common.ApiExceptionHandler;
 import com.paas.deployra.common.InvalidRequestException;
 import com.paas.deployra.common.NotFoundException;
 import com.paas.deployra.common.QuotaExceededException;
-import com.paas.deployra.common.UnauthorizedException;
 import com.paas.deployra.entitlement.EntitlementCodes;
-import com.paas.deployra.paas.Deployment;
 import com.paas.deployra.paas.SourceUpload;
 import com.paas.deployra.paas.SourceUploadService;
 import org.junit.jupiter.api.BeforeEach;
@@ -20,6 +18,7 @@ import java.nio.charset.StandardCharsets;
 
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -36,15 +35,12 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class UploadControllerTest {
 
     private SourceUploadService uploads;
-    private CurrentUser currentUser;
     private MockMvc mvc;
 
     @BeforeEach
     void setUp() {
         uploads = mock(SourceUploadService.class);
-        currentUser = mock(CurrentUser.class);
-        when(currentUser.id()).thenReturn(7L);
-        mvc = MockMvcBuilders.standaloneSetup(new UploadController(uploads, currentUser))
+        mvc = MockMvcBuilders.standaloneSetup(new UploadController(uploads))
                 .setControllerAdvice(new ApiExceptionHandler())
                 .build();
     }
@@ -54,41 +50,40 @@ class UploadControllerTest {
                 "PK\u0003\u0004demo".getBytes(StandardCharsets.ISO_8859_1));
     }
 
-    private static SourceUploadService.Result result() {
+    private static SourceUpload result() {
         SourceUpload upload = new SourceUpload();
         upload.setId(11L);
         upload.setSizeBytes(8);
         upload.setSha256("abc");
-        Deployment deployment = new Deployment();
-        deployment.setId(21L);
-        return new SourceUploadService.Result(upload, deployment);
+        return upload;
     }
 
     @Test
-    void validUploadReturns201WithIds() throws Exception {
-        when(uploads.uploadZip(eq(7L), eq(5L), eq("app.zip"), anyLong(), any(InputStream.class)))
+    void validUploadReturns201WithUploadInfoAndNoDeployment() throws Exception {
+        // userId đang là null vì chưa ghép phần đăng nhập (xem UploadController)
+        when(uploads.uploadZip(isNull(), eq(5L), eq("app.zip"), anyLong(), any(InputStream.class)))
                 .thenReturn(result());
 
         mvc.perform(multipart("/api/services/5/uploads").file(zipFile()))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.uploadId").value(11))
-                .andExpect(jsonPath("$.deploymentId").value(21))
-                .andExpect(jsonPath("$.deploymentStatus").value("QUEUED"))
-                .andExpect(jsonPath("$.sha256").value("abc"));
+                .andExpect(jsonPath("$.sha256").value("abc"))
+                .andExpect(jsonPath("$.deploymentId").doesNotExist())
+                .andExpect(jsonPath("$.deploymentStatus").doesNotExist());
 
-        verify(uploads).uploadZip(eq(7L), eq(5L), eq("app.zip"), eq(8L), any(InputStream.class));
+        verify(uploads).uploadZip(isNull(), eq(5L), eq("app.zip"), eq(8L), any(InputStream.class));
     }
 
     @Test
     void missingFilePartReturns400() throws Exception {
         mvc.perform(multipart("/api/services/5/uploads"))
                 .andExpect(status().isBadRequest());
-        verify(uploads, never()).uploadZip(anyLong(), anyLong(), any(), anyLong(), any());
+        verify(uploads, never()).uploadZip(any(), anyLong(), any(), anyLong(), any());
     }
 
     @Test
     void invalidFileReturns400() throws Exception {
-        when(uploads.uploadZip(anyLong(), anyLong(), any(), anyLong(), any()))
+        when(uploads.uploadZip(any(), anyLong(), any(), anyLong(), any()))
                 .thenThrow(new InvalidRequestException("File không phải zip hợp lệ"));
 
         mvc.perform(multipart("/api/services/5/uploads").file(zipFile()))
@@ -99,7 +94,7 @@ class UploadControllerTest {
 
     @Test
     void unknownServiceReturns404() throws Exception {
-        when(uploads.uploadZip(anyLong(), anyLong(), any(), anyLong(), any()))
+        when(uploads.uploadZip(any(), anyLong(), any(), anyLong(), any()))
                 .thenThrow(new NotFoundException("Không tìm thấy service"));
 
         mvc.perform(multipart("/api/services/5/uploads").file(zipFile()))
@@ -109,23 +104,13 @@ class UploadControllerTest {
 
     @Test
     void quotaExceededReturns403() throws Exception {
-        when(uploads.uploadZip(anyLong(), anyLong(), any(), anyLong(), any()))
+        when(uploads.uploadZip(any(), anyLong(), any(), anyLong(), any()))
                 .thenThrow(new QuotaExceededException(EntitlementCodes.MAX_UPLOAD_MB, "File zip tối đa 50 MB"));
 
         mvc.perform(multipart("/api/services/5/uploads").file(zipFile()))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.error").value("quota_exceeded"))
                 .andExpect(jsonPath("$.key").value(EntitlementCodes.MAX_UPLOAD_MB));
-    }
-
-    @Test
-    void notLoggedInReturns401AndNothingIsUploaded() throws Exception {
-        when(currentUser.id()).thenThrow(new UnauthorizedException("Chưa đăng nhập"));
-
-        mvc.perform(multipart("/api/services/5/uploads").file(zipFile()))
-                .andExpect(status().isUnauthorized())
-                .andExpect(jsonPath("$.error").value("unauthorized"));
-        verify(uploads, never()).uploadZip(anyLong(), anyLong(), any(), anyLong(), any());
     }
 
     @Test

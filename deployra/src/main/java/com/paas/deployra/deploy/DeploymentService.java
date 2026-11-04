@@ -19,7 +19,6 @@ import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
-import java.time.Duration;
 import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.*;
@@ -140,6 +139,7 @@ public class DeploymentService implements DeploymentServiceInterface {
             d.setTrigger(trigger);
             d.setStatus(Status.QUEUED);
             d.setUpload(upload);
+            d.setSourceType(upload != null ? Deployment.SourceType.ZIP : Deployment.SourceType.GIT); // thêm dòng này
             return deployments.save(d);
         });
         queue.offer(saved.getId());

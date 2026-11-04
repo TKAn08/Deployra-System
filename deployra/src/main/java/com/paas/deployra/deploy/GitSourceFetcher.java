@@ -143,7 +143,7 @@ public class GitSourceFetcher {
     // ------------------------------------------------------------------ kiểm tra
     // đầu vào
 
-    URI validateRepoUrl(String repoUrl) {
+    public URI validateRepoUrl(String repoUrl) {
         if (repoUrl == null || repoUrl.isBlank() || repoUrl.length() > MAX_URL_LENGTH) {
             throw new SourceFetchException("Repo URL không hợp lệ");
         }
@@ -194,7 +194,7 @@ public class GitSourceFetcher {
         return uri;
     }
 
-    String requireBranch(String branch) {
+    public String requireBranch(String branch) {
         if (branch == null || branch.isBlank()) {
             return null;
         }
@@ -205,7 +205,7 @@ public class GitSourceFetcher {
         return b;
     }
 
-    String requireSha(String sha) {
+    public String requireSha(String sha) {
         if (sha == null || sha.isBlank()) {
             return null;
         }
