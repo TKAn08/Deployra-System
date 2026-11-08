@@ -16,6 +16,11 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipException;
 import java.util.zip.ZipInputStream;
 
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Component;
+
+@Component
 public class ZipSourceExtractor {
 
     public record Result(Path directory, int fileCount, long totalBytes) {
@@ -30,7 +35,11 @@ public class ZipSourceExtractor {
     private final long maxFileBytes;
     private final long maxTotalBytes;
 
-    public ZipSourceExtractor(int maxEntries, long maxFileBytes, long maxTotalBytes) {
+    @Autowired
+    public ZipSourceExtractor(
+            @Value("${deployra.zip.max-entries:10000}") int maxEntries,
+            @Value("${deployra.zip.max-file-bytes:104857600}") long maxFileBytes,
+            @Value("${deployra.zip.max-total-bytes:524288000}") long maxTotalBytes) {
         this.maxEntries = maxEntries;
         this.maxFileBytes = maxFileBytes;
         this.maxTotalBytes = maxTotalBytes;

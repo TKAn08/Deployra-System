@@ -15,8 +15,6 @@ public interface AppServiceRepository extends JpaRepository<AppService, Long> {
 
   Optional<AppService> findByIdAndProjectOwnerIdAndDeletedAtIsNull(Long id, Long ownerId);
 
-  Optional<AppService> findByIdAndUser(Long id, Long userId);
-
   List<AppService> findByProjectIdAndDeletedAtIsNull(Long projectId);
 
   long countByProjectOwnerIdAndTypeAndDeletedAtIsNull(Long ownerId, AppService.Type type);

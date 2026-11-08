@@ -6,6 +6,7 @@ import com.paas.deployra.paas.SourceUploadService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -19,27 +20,6 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.time.Instant;
 
-/**
- * Nguồn mã của một service, hai cách đưa vào, <b>đều chỉ lưu, không chạy</b>:
- *
- * <ul>
- * <li>{@code POST /api/services/{serviceId}/uploads}: upload file zip.</li>
- * <li>{@code PUT /api/services/{serviceId}/repo}: lưu repo GitHub
- * ({@code {"repoUrl": "https://github.com/acme/demo.git", "branch": "main"}};
- * {@code branch} bỏ trống nghĩa là dùng branch mặc định của repo; gọi lại sẽ
- * thay
- * thế cấu hình cũ).</li>
- * </ul>
- *
- * Muốn chạy thì gọi tiếp {@code POST /api/services/{serviceId}/deployments}
- * (xem
- * {@link DeploymentController}). Controller chỉ lấy người dùng và dữ liệu từ
- * request; mọi kiểm tra và điều phối nằm trong {@link SourceUploadService}.
- *
- * <p>
- * Gọi thử:
- * {@code curl -u email:matkhau -F file=@app.zip localhost:8080/api/services/1/uploads}
- */
 @RestController
 @RequestMapping("/api/services/{serviceId}")
 public class UploadController {
@@ -88,4 +68,15 @@ public class UploadController {
         AppService saved = uploads.setRepo(null, serviceId, request.repoUrl(), request.branch());
         return RepoResponse.from(saved);
     }
+
+    @DeleteMapping("/uploads/{uploadId}")
+    public ResponseEntity<Void> deleteUpload(
+            @PathVariable Long serviceId,
+            @PathVariable Long uploadId) {
+
+        uploads.deleteUpload(null, serviceId, uploadId);
+
+        return ResponseEntity.noContent().build();
+    }
+
 }

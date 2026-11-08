@@ -239,4 +239,27 @@ public class SourceUploadService {
             // file sót lại sẽ bị job dọn zip hết hạn xử lý
         }
     }
+
+    public void deleteUpload(Long userId, Long serviceId, Long uploadId) {
+
+        requireOwnedAppService(userId, serviceId);
+
+        SourceUpload upload = uploads
+                .findByIdAndUserIdAndDeletedAtIsNull(uploadId, userId)
+                .orElseThrow(() -> new NotFoundException(
+                        "Không tìm thấy bản upload"));
+
+        upload.setDeletedAt(clock.instant());
+        uploads.save(upload);
+
+        try {
+            storage.delete(upload.getObjectKey());
+        } catch (RuntimeException e) {
+            log.warn(
+                    "Không thể xóa file upload {} khỏi storage: {}",
+                    uploadId,
+                    e.getMessage());
+        }
+    }
+
 }

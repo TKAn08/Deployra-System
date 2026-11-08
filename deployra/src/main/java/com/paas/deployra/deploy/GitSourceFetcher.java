@@ -20,6 +20,10 @@ import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.regex.Pattern;
 
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Component;
+
 /**
  * Lấy mã nguồn từ một repo Git công khai bằng lệnh {@code git} trên máy chủ
  * (cần cài sẵn git).
@@ -49,6 +53,7 @@ import java.util.regex.Pattern;
  * khác. Muốn chặn hẳn thì chạy
  * bước clone trong một container/mạng không có đường vào mạng nội bộ.
  */
+@Component
 public class GitSourceFetcher {
 
     /** Kết quả: thư mục chứa mã nguồn (đã bỏ .git) và commit SHA đầy đủ. */
@@ -67,12 +72,19 @@ public class GitSourceFetcher {
     private final Function<String, InetAddress[]> resolver;
 
     /** Bản dùng thật: chỉ https, phân giải DNS bằng hệ thống. */
-    public GitSourceFetcher(Duration timeout, long maxRepoBytes) {
-        this(timeout, maxRepoBytes, Set.of("https"), GitSourceFetcher::systemResolve);
+    @Autowired
+    public GitSourceFetcher(
+            @Value("${deployra.git.timeout:300}") long timeoutSeconds,
+            @Value("${deployra.git.max-repo-bytes:104857600}") long maxRepoBytes) {
+        this(
+                Duration.ofSeconds(timeoutSeconds),
+                maxRepoBytes,
+                Set.of("https"),
+                GitSourceFetcher::systemResolve);
     }
 
     /** Dành cho test: cho phép thêm scheme (file) và thay bộ phân giải DNS. */
-    GitSourceFetcher(Duration timeout, long maxRepoBytes, Set<String> allowedSchemes,
+    public GitSourceFetcher(Duration timeout, long maxRepoBytes, Set<String> allowedSchemes,
             Function<String, InetAddress[]> resolver) {
         this.timeout = timeout;
         this.maxRepoBytes = maxRepoBytes;
