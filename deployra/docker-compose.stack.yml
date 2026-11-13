@@ -1,0 +1,99 @@
+name: deployra-stack
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: deployra
+      POSTGRES_USER: ${DB_USER:-deployra}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-deployra}
+    # Không publish cổng 5432 ra ngoài: chỉ app trong mạng nội bộ truy cập được.
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - deployra-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-deployra} -d deployra"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  traefik:
+    image: traefik:v3.6
+    restart: unless-stopped
+    command:
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --providers.docker.network=deployra-net
+      - --entrypoints.web.address=:80
+      - --entrypoints.websecure.address=:443
+      # Chứng chỉ Let's Encrypt: wildcard cần DNS-01 (mặc định Route53, dùng IAM Role của EC2).
+      # Đổi ACME_DNS_PROVIDER nếu DNS không nằm ở Route53.
+      - --certificatesresolvers.le.acme.email=${ACME_EMAIL:-admin@example.com}
+      - --certificatesresolvers.le.acme.storage=/letsencrypt/acme.json
+      - --certificatesresolvers.le.acme.dnschallenge=true
+      - --certificatesresolvers.le.acme.dnschallenge.provider=${ACME_DNS_PROVIDER:-route53}
+      # Cấp sẵn chứng chỉ cho domain gốc + wildcard (URL service: https://{slug}.BASE_DOMAIN)
+      - --entrypoints.websecure.http.tls.certresolver=le
+      - --entrypoints.websecure.http.tls.domains[0].main=${BASE_DOMAIN:-deployra.localhost}
+      - --entrypoints.websecure.http.tls.domains[0].sans=*.${BASE_DOMAIN:-deployra.localhost}
+    environment:
+      AWS_REGION: ${AWS_REGION:-ap-southeast-1}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - letsencrypt:/letsencrypt
+    networks:
+      - deployra-net
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DB_URL: jdbc:postgresql://postgres:5432/deployra
+      DB_USER: ${DB_USER:-deployra}
+      DB_PASSWORD: ${DB_PASSWORD:-deployra}
+      # Khi đã có Flyway + V1__baseline.sql (Task 4) thì đặt DDL_AUTO=validate.
+      # Chưa có Flyway mà để validate thì bảng chưa tồn tại, app sẽ không khởi động được.
+      DDL_AUTO: ${DDL_AUTO:-update}
+      DEPLOYRA_CRYPTO_KEY: ${DEPLOYRA_CRYPTO_KEY:-}
+      DEPLOYRA_ADMIN_EMAILS: ${DEPLOYRA_ADMIN_EMAILS:-demo@deployra.local}
+      NODE_ALLOCATABLE_MB: ${NODE_ALLOCATABLE_MB:-3072}
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-}
+    networks:
+      - deployra-net
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/actuator/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 40s
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=deployra-net
+      # HTTP (dùng khi chạy thử local, không cần TLS)
+      - traefik.http.routers.deployra-http.rule=Host(`${APP_DOMAIN:-api.deployra.localhost}`)
+      - traefik.http.routers.deployra-http.entrypoints=web
+      - traefik.http.routers.deployra-http.service=deployra
+      # HTTPS (dùng khi có domain thật)
+      - traefik.http.routers.deployra.rule=Host(`${APP_DOMAIN:-api.deployra.localhost}`)
+      - traefik.http.routers.deployra.entrypoints=websecure
+      - traefik.http.routers.deployra.tls.certresolver=le
+      - traefik.http.routers.deployra.service=deployra
+      - traefik.http.services.deployra.loadbalancer.server.port=8080
+
+networks:
+  deployra-net:
+    name: deployra-net
+
+volumes:
+  pgdata:
+  letsencrypt:
