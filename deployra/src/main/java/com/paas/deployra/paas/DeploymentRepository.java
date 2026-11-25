@@ -13,9 +13,26 @@ public interface DeploymentRepository extends JpaRepository<Deployment, Long> {
 
   List<Deployment> findByServiceIdOrderByCreatedAtDesc(Long serviceId);
 
+  List<Deployment> findTop50ByServiceIdOrderByCreatedAtDesc(Long serviceId);
+
   List<Deployment> findByStatusIn(Collection<Deployment.Status> statuses);
 
   Optional<Deployment> findFirstByServiceIdAndStatusOrderByCreatedAtDesc(Long serviceId, Deployment.Status status);
+
+  /**
+   * Nạp sẵn service, project, chủ sở hữu và bản upload. Worker deploy dùng entity
+   * ngoài
+   * transaction (open-in-view tắt) nên không được để các quan hệ LAZY chưa nạp.
+   */
+  @Query("""
+      select d from Deployment d
+        join fetch d.service s
+        join fetch s.project p
+        join fetch p.owner
+        left join fetch d.upload
+      where d.id = :id
+      """)
+  Optional<Deployment> findWithGraphById(@Param("id") Long id);
 
   boolean existsByServiceIdAndStatusIn(Long serviceId, List<Deployment.Status> statuses);
 

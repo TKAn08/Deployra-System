@@ -87,19 +87,6 @@ public class EnvFileImporter {
         return createMissing(service, merged, ignored, logLine);
     }
 
-    /**
-     * Đọc {@code .env.example}/{@code .env} ngay trong file zip (chưa giải nén ra
-     * đĩa), chỉ lấy tên biến rồi tạo các biến còn thiếu. Dùng ngay sau khi upload
-     * để người dùng thấy key và điền giá trị trước khi deploy.
-     *
-     * <p>
-     * Tìm đúng chỗ mà {@code ZipSourceExtractor} sẽ đặt file sau khi giải nén: ở
-     * gốc,
-     * hoặc trong thư mục bọc nếu cả zip nằm gọn trong đúng một thư mục
-     * ({@code repo-main/...}). Không ném exception: zip lỗi hoặc quá lớn thì bỏ
-     * qua,
-     * deploy sẽ báo lỗi rõ ràng sau.
-     */
     public Outcome importFromZip(AppService service, InputStream zip, Consumer<String> logLine) {
         if (service == null || service.getId() == null || zip == null) {
             return new Outcome(0, 0, 0);

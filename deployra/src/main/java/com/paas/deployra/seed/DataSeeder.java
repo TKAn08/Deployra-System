@@ -10,6 +10,7 @@ import com.paas.deployra.entitlement.EntitlementKey;
 import com.paas.deployra.entitlement.EntitlementKeyRepository;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
+import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -23,6 +24,7 @@ import static com.paas.deployra.entitlement.EntitlementCodes.*;
  * Chạy lặp lại an toàn: dòng nào có rồi thì bỏ qua, không ghi đè giá trị đã chỉnh trong DB.
  */
 @Component
+@Order(1)
 public class DataSeeder implements ApplicationRunner {
 
     private record KeyDef(String code, String description, String unit, boolean additive) {

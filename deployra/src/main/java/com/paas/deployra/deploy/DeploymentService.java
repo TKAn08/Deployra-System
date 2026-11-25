@@ -42,6 +42,7 @@ public class DeploymentService implements DeploymentServiceInterface {
     private final EnvVariableService envVars;
     private final EnvFileImporter envFileImporter;
     private final EntitlementService entitlements;
+    private final ProjectBuildPreparer buildPreparer;
     private final Clock clock;
     private final DeploymentProperties props;
     private final TransactionTemplate tx;
@@ -60,6 +61,7 @@ public class DeploymentService implements DeploymentServiceInterface {
             EnvVariableService envVars,
             EnvFileImporter envFileImporter,
             EntitlementService entitlements,
+            ProjectBuildPreparer buildPreparer,
             Clock clock,
             DeploymentProperties props,
             TransactionTemplate tx) {
@@ -72,6 +74,7 @@ public class DeploymentService implements DeploymentServiceInterface {
         this.envVars = envVars;
         this.envFileImporter = envFileImporter;
         this.entitlements = entitlements;
+        this.buildPreparer = buildPreparer;
         this.clock = clock;
         this.props = props;
         this.tx = tx;
@@ -191,7 +194,7 @@ public class DeploymentService implements DeploymentServiceInterface {
 
     private Deployment tryBeginBuilding(Long id) {
         return tx.execute(s -> {
-            Deployment d = deployments.findById(id).orElse(null);
+            Deployment d = deployments.findWithGraphById(id).orElse(null);
             if (d == null || d.getStatus() != Status.QUEUED)
                 return null;
             d.transitionTo(Status.BUILDING, clock.instant());
@@ -221,6 +224,9 @@ public class DeploymentService implements DeploymentServiceInterface {
             Consumer<String> logSink = logSink(d);
             Path sourceDir = fetchSource(d, workDir, logSink);
             saveIfChanged(d);
+
+            // Chuẩn bị biến .env cho build và tự sinh Dockerfile Nginx nếu là dự án Frontend
+            buildPreparer.prepare(svc, sourceDir, logSink);
 
             if (!Files.isRegularFile(sourceDir.resolve(DOCKERFILE))) {
                 fail(d, "Thiếu Dockerfile ở gốc mã nguồn");
@@ -269,11 +275,13 @@ public class DeploymentService implements DeploymentServiceInterface {
                 fail(d, "Không khởi chạy được container: " + msg(e));
                 return;
             }
-
+            String healthPath = svc.getHealthcheckPath() == null || svc.getHealthcheckPath().isBlank()
+                    ? "/"
+                    : svc.getHealthcheckPath();
             boolean healthy;
             try {
-                healthy = runtime.waitHealthy(containerId, props.getHealthPath(),
-                        props.getAppPort(), props.getHealthTimeout());
+                healthy = runtime.waitHealthy(containerId, healthPath,
+                        svc.getPort(), props.getHealthTimeout());
             } catch (RuntimeException e) {
                 fail(d, "Health check lỗi: " + msg(e));
                 return;

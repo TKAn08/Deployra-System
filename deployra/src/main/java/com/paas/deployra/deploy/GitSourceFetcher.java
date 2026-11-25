@@ -368,6 +368,112 @@ public class GitSourceFetcher {
         return text;
     }
 
+    // ------------------------------------------------------------------ kiểm tra
+    // repo từ xa (không clone)
+
+    public enum ProbeOutcome {
+        /** Truy cập ẩn danh được: Deployra clone được. */
+        OK,
+        /** Truy cập được nhưng repo chưa có commit nào. */
+        EMPTY,
+        /**
+         * Không tồn tại HOẶC là private. Git/GitHub cố tình trả cùng một lỗi cho hai
+         * trường hợp này nên không phân biệt được nếu không có token của chủ repo.
+         */
+        NOT_FOUND_OR_PRIVATE,
+        /** Lỗi mạng, DNS, quá hạn... không kết luận được. */
+        UNREACHABLE
+    }
+
+    /**
+     * @param defaultBranch branch mặc định của repo (null nếu không đọc được)
+     * @param branchExists  null nếu không hỏi branch, hoặc không kết luận được
+     */
+    public record RemoteProbe(ProbeOutcome outcome, String defaultBranch, Boolean branchExists) {
+    }
+
+    private record GitResult(int exit, String output) {
+    }
+
+    private static final Duration PROBE_TIMEOUT = Duration.ofSeconds(15);
+
+    /**
+     * Hỏi repo từ xa bằng {@code git ls-remote} với đúng bộ phòng thủ và đúng kiểu
+     * truy cập ẩn danh của {@link #fetch}, nên "OK" nghĩa là deploy sẽ clone được.
+     * Không dùng REST API của GitHub vì hạn mức 60 request/giờ/IP khi không có
+     * token.
+     *
+     * @param branch null/rỗng thì không kiểm tra branch
+     */
+    public RemoteProbe probe(String repoUrl, String branch) {
+        String url = validateRepoUrl(repoUrl).toString();
+        String safeBranch = requireBranch(branch);
+
+        GitResult head = runProbe("ls-remote", "--symref", "--exit-code", "--", url, "HEAD");
+        if (head.exit() == 2) {
+            return new RemoteProbe(ProbeOutcome.EMPTY, null, null);
+        }
+        if (head.exit() != 0) {
+            return new RemoteProbe(classifyFailure(head.output()), null, null);
+        }
+        String defaultBranch = parseDefaultBranch(head.output());
+
+        Boolean branchExists = null;
+        if (safeBranch != null) {
+            GitResult r = runProbe("ls-remote", "--heads", "--exit-code", "--", url, "refs/heads/" + safeBranch);
+            branchExists = r.exit() == 0 ? Boolean.TRUE : r.exit() == 2 ? Boolean.FALSE : null;
+        }
+        return new RemoteProbe(ProbeOutcome.OK, defaultBranch, branchExists);
+    }
+
+    private GitResult runProbe(String... gitArgs) {
+        List<String> cmd = baseCommand();
+        cmd.addAll(List.of(gitArgs));
+        ProcessBuilder pb = new ProcessBuilder(cmd).redirectErrorStream(true);
+        configureEnv(pb.environment());
+
+        Process process;
+        try {
+            process = pb.start();
+        } catch (IOException e) {
+            throw new SourceFetchException("Không chạy được lệnh git (máy chủ đã cài git chưa?)", e);
+        }
+        try {
+            if (!process.waitFor(PROBE_TIMEOUT.toSeconds(), TimeUnit.SECONDS)) {
+                process.destroyForcibly();
+                return new GitResult(-1, "timeout");
+            }
+            // output của ls-remote rất nhỏ; vẫn chặn trên 64 KB cho chắc
+            String out = new String(process.getInputStream().readNBytes(65536), StandardCharsets.UTF_8).trim();
+            return new GitResult(process.exitValue(), out);
+        } catch (InterruptedException e) {
+            process.destroyForcibly();
+            Thread.currentThread().interrupt();
+            throw new SourceFetchException("Việc kiểm tra bị huỷ");
+        } catch (IOException e) {
+            process.destroyForcibly();
+            return new GitResult(-1, "io");
+        }
+    }
+
+    private static ProbeOutcome classifyFailure(String output) {
+        String o = output.toLowerCase(Locale.ROOT);
+        boolean denied = o.contains("authentication failed") || o.contains("repository not found")
+                || o.contains("could not read username") || o.contains("terminal prompts disabled")
+                || o.contains("error: 404") || o.contains("error: 401") || o.contains("error: 403");
+        return denied ? ProbeOutcome.NOT_FOUND_OR_PRIVATE : ProbeOutcome.UNREACHABLE;
+    }
+
+    private static String parseDefaultBranch(String output) {
+        for (String line : output.split("\n")) {
+            if (line.startsWith("ref: refs/heads/")) {
+                int tab = line.indexOf('\t');
+                return (tab > 0 ? line.substring(0, tab) : line).substring("ref: refs/heads/".length()).trim();
+            }
+        }
+        return null;
+    }
+
     // ------------------------------------------------------------------ tiện ích
 
     private static String sanitize(String text, Path destination) {

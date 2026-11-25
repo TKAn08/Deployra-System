@@ -1,5 +1,6 @@
 package com.paas.deployra.api;
 
+import com.paas.deployra.deploy.RepoCheckService;
 import com.paas.deployra.paas.AppService;
 import com.paas.deployra.paas.SourceUpload;
 import com.paas.deployra.paas.SourceUploadService;
@@ -46,37 +47,46 @@ public class UploadController {
     }
 
     private final SourceUploadService uploads;
-    // private final CurrentUser currentUser;
+    private final RepoCheckService repoCheck;
 
-    public UploadController(SourceUploadService uploads) {
+    public UploadController(SourceUploadService uploads, RepoCheckService repoCheck) {
         this.uploads = uploads;
-        // this.currentUser = currentUser;
+        this.repoCheck = repoCheck;
     }
 
     @PostMapping(value = "/uploads", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<UploadResponse> upload(@PathVariable Long serviceId,
-            @RequestParam("file") MultipartFile file) throws IOException {
+            @RequestParam("file") MultipartFile file, @RequestParam("userId") Long userId)
+            throws IOException {
         SourceUpload result;
         try (InputStream in = file.getInputStream()) {
-            result = uploads.uploadZip(null, serviceId, file.getOriginalFilename(), file.getSize(), in);
+            result = uploads.uploadZip(userId, serviceId, file.getOriginalFilename(), file.getSize(), in);
         }
         return ResponseEntity.status(HttpStatus.CREATED).body(UploadResponse.from(result));
     }
 
     @PutMapping("/repo")
-    public RepoResponse setRepo(@PathVariable Long serviceId, @RequestBody RepoRequest request) {
-        AppService saved = uploads.setRepo(null, serviceId, request.repoUrl(), request.branch());
-        return RepoResponse.from(saved);
+    public ResponseEntity<?> setRepo(@PathVariable Long serviceId, @RequestBody RepoRequest request) {
+        RepoCheckService.Result check = repoCheck.check(request.repoUrl(), request.branch());
+        if (!check.usable()) {
+            HttpStatus status = switch (check.status()) {
+                case INVALID_URL -> HttpStatus.BAD_REQUEST;
+                case UNREACHABLE -> HttpStatus.BAD_GATEWAY;
+                default -> HttpStatus.UNPROCESSABLE_ENTITY;
+            };
+            return ResponseEntity.status(status).body(check);
+        }
+        String branch = check.branch() != null ? check.branch() : check.defaultBranch();
+        AppService saved = uploads.setRepo(null, serviceId, check.normalizedUrl(), branch);
+        return ResponseEntity.ok(RepoResponse.from(saved));
     }
 
     @DeleteMapping("/uploads/{uploadId}")
     public ResponseEntity<Void> deleteUpload(
             @PathVariable Long serviceId,
             @PathVariable Long uploadId) {
-
         uploads.deleteUpload(null, serviceId, uploadId);
 
         return ResponseEntity.noContent().build();
     }
-
 }

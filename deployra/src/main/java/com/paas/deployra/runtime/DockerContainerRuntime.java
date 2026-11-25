@@ -1,6 +1,8 @@
 package com.paas.deployra.runtime;
 
 import com.paas.deployra.paas.AppService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -75,6 +77,8 @@ import java.util.regex.Pattern;
  */
 @Component
 public class DockerContainerRuntime implements ContainerRuntime {
+
+    private static final Logger log = LoggerFactory.getLogger(DockerContainerRuntime.class);
 
     /** Nhãn đánh dấu mọi container/image do Deployra tạo. */
     static final String LABEL_MANAGED = "deployra.managed";
@@ -261,20 +265,42 @@ public class DockerContainerRuntime implements ContainerRuntime {
                 return false; // container đã dừng (thường là ứng dụng crash lúc khởi động)
             }
             String ip = m.group(2);
-            if (!ip.isEmpty()) {
+            if (ip != null && !ip.isEmpty()) {
                 try {
                     int status = prober.statusOf(URI.create("http://" + ip + ":" + port + healthcheckPath));
                     if (status >= 200 && status < 400) {
+                        log.info("Container {} healthy qua HTTP http://{}:{}{}", containerId, ip, port, healthcheckPath);
                         return true;
                     }
                 } catch (IOException | RuntimeException e) {
-                    // chưa nhận kết nối: thử lại
+                    // chưa nhận kết nối: thử tiếp
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                     return false;
                 }
             }
+
+            // Fallback 1: Thử docker exec curl ngay bên trong container
+            CommandResult execCurl = exec("docker exec healthcheck",
+                    List.of(docker, "exec", containerId, "curl", "-s", "-f", "http://127.0.0.1:" + port + healthcheckPath),
+                    Duration.ofSeconds(2), null);
+            if (execCurl.exitCode() == 0) {
+                log.info("Container {} healthy qua docker exec curl (port {})", containerId, port);
+                return true;
+            }
+
+            // Fallback 2: Kiểm tra trạng thái healthcheck của chính Docker nếu image có HEALTHCHECK
+            CommandResult dockerHealth = exec("docker inspect health",
+                    List.of(docker, "inspect", "-f", "{{if .State.Health}}{{.State.Health.Status}}{{end}}", containerId),
+                    Duration.ofSeconds(2), null);
+            if (dockerHealth.exitCode() == 0 && "healthy".equalsIgnoreCase(dockerHealth.output().trim())) {
+                log.info("Container {} được Docker daemon báo healthy", containerId);
+                return true;
+            }
+
             if (System.nanoTime() >= deadline) {
+                log.warn("Health check container {} timeout sau {}s (port={}, ip={}, path={})",
+                        containerId, timeout.toSeconds(), port, ip, healthcheckPath);
                 return false;
             }
             try {

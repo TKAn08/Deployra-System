@@ -3,6 +3,7 @@ package com.paas.deployra.api;
 import com.paas.deployra.common.ApiExceptionHandler;
 import com.paas.deployra.common.InvalidRequestException;
 import com.paas.deployra.common.NotFoundException;
+import com.paas.deployra.deploy.DeploymentQueryService;
 import com.paas.deployra.paas.Deployment;
 import com.paas.deployra.paas.SourceUploadService;
 import org.junit.jupiter.api.BeforeEach;
@@ -23,16 +24,21 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-/** MockMvc độc lập: kiểm tra việc chọn nguồn zip/git và mã HTTP của bước "run". */
+/**
+ * MockMvc độc lập: kiểm tra việc chọn nguồn zip/git và mã HTTP của bước "run".
+ */
 class DeploymentControllerTest {
 
     private SourceUploadService uploads;
+    private DeploymentQueryService query;
     private MockMvc mvc;
 
     @BeforeEach
     void setUp() {
         uploads = mock(SourceUploadService.class);
-        mvc = MockMvcBuilders.standaloneSetup(new DeploymentController(uploads))
+        query = mock(DeploymentQueryService.class);
+        mvc = MockMvcBuilders
+                .standaloneSetup(new DeploymentController(uploads, query))
                 .setControllerAdvice(new ApiExceptionHandler())
                 .build();
     }

@@ -36,6 +36,7 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -187,6 +188,26 @@ class SourceUploadServiceTest {
     void envImportIsSkippedWhenTheUploadIsRejected() throws Exception {
         assertThrows(InvalidRequestException.class, () -> upload("a.txt", zipBytes()));
         verify(envFileImporter, never()).importFromZip(any(), any(), any());
+    }
+
+    @Test
+    void uploadHtmlDirectlyWrapsIntoZipAndSavesRow() throws Exception {
+        byte[] htmlBytes = "<h1>Hello from single HTML file</h1>".getBytes(StandardCharsets.UTF_8);
+
+        SourceUpload saved = upload("index.html", htmlBytes);
+
+        assertNotNull(saved);
+        assertEquals(11L, saved.getId());
+        assertEquals(SourceUpload.StorageBackend.LOCAL, saved.getStorageBackend());
+        assertTrue(saved.getSizeBytes() > 0);
+        assertTrue(saved.getObjectKey().endsWith(".zip"));
+
+        // File lưu trong kho là một zip hợp lệ
+        List<Path> files = storedFiles();
+        assertEquals(1, files.size());
+        byte[] stored = Files.readAllBytes(files.get(0));
+        assertEquals('P', stored[0]);
+        assertEquals('K', stored[1]);
     }
 
     @Test

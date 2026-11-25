@@ -16,6 +16,8 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.io.BufferedInputStream;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.security.DigestInputStream;
@@ -27,6 +29,8 @@ import java.util.Arrays;
 import java.util.HexFormat;
 import java.util.Locale;
 import java.util.UUID;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
 
 /**
  * Lớp nằm giữa API và phần lưu/deploy. Hai việc tách riêng:
@@ -103,16 +107,47 @@ public class SourceUploadService {
      */
     public SourceUpload uploadZip(Long userId, Long serviceId, String filename, long sizeBytes, InputStream data) {
         AppService service = requireOwnedAppService(userId, serviceId);
-        if (filename == null || !filename.toLowerCase(Locale.ROOT).endsWith(".zip")) {
-            throw new InvalidRequestException("Chỉ nhận file .zip");
+        if (filename == null) {
+            throw new InvalidRequestException("Thiếu tên file");
+        }
+        String lowerName = filename.toLowerCase(Locale.ROOT);
+        boolean isZip = lowerName.endsWith(".zip");
+        boolean isHtml = lowerName.endsWith(".html") || lowerName.endsWith(".htm");
+        if (!isZip && !isHtml) {
+            throw new InvalidRequestException("Chỉ nhận file .zip hoặc file .html");
         }
         if (sizeBytes <= 0) {
             throw new InvalidRequestException("File rỗng");
         }
-        entitlements.requireCanUpload(userId, sizeBytes);
+
+        // Nếu người dùng tải trực tiếp 1 file html, tự động gói thành zip chứa index.html
+        InputStream streamToStore = data;
+        long bytesToStore = sizeBytes;
+        if (isHtml) {
+            try {
+                byte[] htmlBytes = data.readAllBytes();
+                if (htmlBytes.length == 0) {
+                    throw new InvalidRequestException("File rỗng");
+                }
+                ByteArrayOutputStream baos = new ByteArrayOutputStream();
+                try (ZipOutputStream zos = new ZipOutputStream(baos)) {
+                    ZipEntry entry = new ZipEntry("index.html");
+                    zos.putNextEntry(entry);
+                    zos.write(htmlBytes);
+                    zos.closeEntry();
+                }
+                byte[] zipBytes = baos.toByteArray();
+                bytesToStore = zipBytes.length;
+                streamToStore = new ByteArrayInputStream(zipBytes);
+            } catch (IOException e) {
+                throw new InvalidRequestException("Không đọc được nội dung file HTML");
+            }
+        }
+
+        entitlements.requireCanUpload(userId, bytesToStore);
 
         String key = "uploads/" + userId + "/" + UUID.randomUUID() + ".zip";
-        String sha256 = store(key, sizeBytes, data);
+        String sha256 = store(key, bytesToStore, streamToStore);
 
         SourceUpload saved;
         try {
@@ -120,7 +155,7 @@ public class SourceUploadService {
             upload.setUser(users.getReferenceById(userId));
             upload.setStorageBackend(storage.backend());
             upload.setObjectKey(key);
-            upload.setSizeBytes(sizeBytes);
+            upload.setSizeBytes(bytesToStore);
             upload.setSha256(sha256);
             upload.setExpiresAt(clock.instant().plus(retention));
             saved = uploads.save(upload);
