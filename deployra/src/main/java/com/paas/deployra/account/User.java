@@ -18,7 +18,7 @@ import java.time.Instant;
 
 /** Người dùng. {@code subscriptionPlan} = null nghĩa là đang ở gói Free. */
 @Entity
-@Table(name = "user")
+@Table(name = "users")
 @Getter
 @Setter
 @NoArgsConstructor

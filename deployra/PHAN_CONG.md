@@ -31,7 +31,7 @@ Mục tiêu: nhận một service và một nguồn mã, chạy ra container có
 
 - [ ] Clone repo: chỉ `https`, theo branch hoặc commit SHA, chặn địa chỉ nội bộ (SSRF)
 - [ ] Giải nén zip an toàn: chống zip-slip, giới hạn dung lượng sau giải nén
-- [ ] `DockerContainerRuntime` (gợi ý thư viện docker-java): build, chạy với giới hạn RAM/CPU theo `memoryMb`/`cpuMillicores`, nhãn Traefik, healthcheck, dừng/bật/xoá, log, thống kê
+- [ ] `DockerContainerRuntime` (gợi ý dùng docketcli): build, chạy với giới hạn RAM/CPU theo `memoryMb`/`cpuMillicores`, nhãn Traefik, healthcheck, dừng/bật/xoá, log, thống kê
 - [ ] `DeploymentService`: hàng đợi và máy trạng thái `QUEUED → BUILDING → DEPLOYING → LIVE/FAILED`
   - Mỗi service chỉ 1 deploy chạy tại một thời điểm; deploy cũ đang chờ bị huỷ khi có deploy mới
   - Ghi `buildLog`, `buildSeconds`, `imageBytes`, `commitSha`

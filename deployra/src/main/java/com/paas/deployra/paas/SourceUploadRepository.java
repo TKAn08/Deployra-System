@@ -6,19 +6,22 @@ import org.springframework.data.repository.query.Param;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 
 public interface SourceUploadRepository extends JpaRepository<SourceUpload, Long> {
 
-    List<SourceUpload> findByUserIdAndDeletedAtIsNullOrderByCreatedAtDesc(Long userId);
+  List<SourceUpload> findByUserIdAndDeletedAtIsNullOrderByCreatedAtDesc(Long userId);
 
-    /** Job dọn zip hết hạn. */
-    List<SourceUpload> findByExpiresAtBeforeAndDeletedAtIsNull(Instant before);
+  /** Job dọn zip hết hạn. */
+  List<SourceUpload> findByExpiresAtBeforeAndDeletedAtIsNull(Instant before);
 
-    @Query("""
-            select coalesce(sum(u.sizeBytes), 0L)
-            from SourceUpload u
-            where u.user.id = :userId
-              and u.deletedAt is null
-            """)
-    long sumSizeBytes(@Param("userId") Long userId);
+  @Query("""
+      select coalesce(sum(u.sizeBytes), 0L)
+      from SourceUpload u
+      where u.user.id = :userId
+        and u.deletedAt is null
+      """)
+  long sumSizeBytes(@Param("userId") Long userId);
+
+  Optional<SourceUpload> findByIdAndUserIdAndDeletedAtIsNull(Long id, Long userId);
 }
