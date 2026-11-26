@@ -1,3 +1,15 @@
+-- =====================================================================
+-- V1__baseline.sql: lược đồ gốc của Deployra (15 bảng), PostgreSQL.
+-- Viết khớp với các @Entity hiện có (kiểu cột Hibernate sinh ra cho Postgres)
+-- để chạy app với ddl-auto=validate. Không đổi entity.
+--
+-- Quy ước: bảng người dùng tên "users" (không dùng "user" vì trùng từ khoá).
+-- Cột enum lưu dạng chữ (varchar) + ràng buộc check theo danh sách giá trị.
+-- Cột thời gian (Instant) dùng "timestamp(6) with time zone".
+-- =====================================================================
+
+-- 1. Catalog: khoá hạn mức và gói dịch vụ -----------------------------
+
 CREATE TABLE entitlement_keys (
     code          varchar(64)  NOT NULL,
     description   varchar(255),
@@ -160,6 +172,7 @@ CREATE TABLE services (
     memory_mb        integer      NOT NULL,
     cpu_millicores   integer      NOT NULL,
     volume_bytes     bigint       NOT NULL,
+    replica_count    integer      NOT NULL,
     node_id          bigint,
     last_active_at   timestamp(6) with time zone,
     suspended_at     timestamp(6) with time zone,
@@ -203,6 +216,7 @@ CREATE TABLE deployments (
     build_seconds integer,
     build_log     text,
     created_at    timestamp(6) with time zone NOT NULL,
+    started_at    timestamp(6) with time zone,
     finished_at   timestamp(6) with time zone,
     CONSTRAINT pk_deployments PRIMARY KEY (id),
     CONSTRAINT fk_deployments_service FOREIGN KEY (service_id) REFERENCES services (id),

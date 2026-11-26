@@ -11,6 +11,7 @@ import { PricingPage } from "./pages/PricingPage";
 import { ProjectDetailPage } from "./pages/ProjectDetailPage";
 import { ProjectsPage } from "./pages/ProjectsPage";
 import { QuotaPage } from "./pages/QuotaPage";
+import { RegisterPage } from "./pages/RegisterPage";
 import { ServicePage } from "./pages/ServicePage";
 
 function Protected({ children }: { children: ReactNode }) {
@@ -49,6 +50,7 @@ export function App() {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
+      <Route path="/register" element={<RegisterPage />} />
       <Route element={<AppLayout />}>
         <Route path="/pricing" element={<PricingPage />} />
         <Route

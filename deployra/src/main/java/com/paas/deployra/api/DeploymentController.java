@@ -45,7 +45,7 @@ public class DeploymentController {
             throw new InvalidRequestException("uploadId không hợp lệ");
         }
         Deployment deployment = (uploadId != null)
-                ? uploads.deployUpload(3L, serviceId, uploadId)
+                ? uploads.deployUpload(null, serviceId, uploadId)
                 : uploads.deployFromGit(null, serviceId);
         return ResponseEntity.accepted().body(DeployResponse.from(deployment));
     }

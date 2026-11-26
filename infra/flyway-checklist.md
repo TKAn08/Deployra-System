@@ -1,7 +1,7 @@
 # Flyway + validate: checklist trước khi lên máy thật (Task 4.3)
 
 Mục tiêu: lên EC2 thì bảng do Flyway tạo (`V1__baseline.sql`), Hibernate chỉ kiểm tra (`ddl-auto=validate`).
-Máy dev vẫn dùng `ddl-auto=update` như cũ. **Không sửa `pom.xml` / `application.properties` trong PR này.**
+Máy dev vẫn dùng `ddl-auto=update` như cũ (Flyway mặc định tắt, chỉ profile `prod` bật). `pom.xml` đã có 2 dependency Flyway (Bước 5 đã làm).
 
 Các file liên quan:
 

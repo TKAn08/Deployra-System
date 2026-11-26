@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import { api, ApiError } from "../api/client";
 import type { DeploymentView, ServiceDetail } from "../api/types";
+import { EnvVariablesCard } from "../components/EnvVariablesCard";
+import { SourceUploadCard } from "../components/SourceUploadCard";
 import { useBuildLog } from "../hooks/useBuildLog";
 
 const BASE_DOMAIN: string = import.meta.env.VITE_BASE_DOMAIN ?? "deployra.local";
@@ -177,6 +179,13 @@ export function ServicePage() {
           </dl>
         </aside>
       </div>
+
+      {service.type === "APP" && serviceId ? (
+        <div className="two-even">
+          <SourceUploadCard serviceId={serviceId} onDeployed={() => setRefreshKey((key) => key + 1)} />
+          <EnvVariablesCard serviceId={serviceId} />
+        </div>
+      ) : null}
     </section>
   );
 }

@@ -1,5 +1,5 @@
 import { FormEvent, useState } from "react";
-import { Navigate, useLocation, useNavigate } from "react-router-dom";
+import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { ApiError } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 
@@ -108,6 +108,9 @@ export function LoginPage() {
             Vào workspace
           </button>
           <p className="login-hint">Tài khoản demo: demo@deployra.local / demo1234</p>
+          <p className="login-hint">
+            Chưa có tài khoản? <Link to="/register">Đăng ký</Link>
+          </p>
         </form>
       </div>
     </div>

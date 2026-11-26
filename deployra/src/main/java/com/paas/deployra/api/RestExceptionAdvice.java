@@ -17,6 +17,11 @@ public class RestExceptionAdvice {
         return body(HttpStatus.NOT_FOUND, "not_found", e.getMessage());
     }
 
+    @ExceptionHandler(ApiUnauthorizedException.class)
+    public ResponseEntity<Map<String, Object>> unauthorized(ApiUnauthorizedException e) {
+        return body(HttpStatus.UNAUTHORIZED, "unauthorized", e.getMessage());
+    }
+
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<Map<String, Object>> invalid(MethodArgumentNotValidException e) {
         String message = e.getBindingResult().getFieldErrors().stream()

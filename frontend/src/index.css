@@ -462,3 +462,7 @@ input[type="checkbox"] { width: auto; margin-right: 8px; }
   .steps { overflow-x: auto; }
   .step { min-width: 120px; }
 }
+.two-even { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; margin-top: 16px; }
+@media (max-width: 900px) { .two-even { grid-template-columns: 1fr; } }
+.login-hint a { color: var(--a1); font-weight: 600; }
+.login-hint a:hover { text-decoration: underline; }
