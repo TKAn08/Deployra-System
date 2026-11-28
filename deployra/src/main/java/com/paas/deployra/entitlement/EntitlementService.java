@@ -6,7 +6,7 @@ import com.paas.deployra.account.SubscriptionPlan;
 import com.paas.deployra.account.SubscriptionPlanRepository;
 import com.paas.deployra.account.User;
 import com.paas.deployra.account.UserRepository;
-import com.paas.deployra.account.dto.WarningResponse;
+import com.paas.deployra.api.dto.WarningResponse;
 import com.paas.deployra.common.QuotaExceededException;
 import com.paas.deployra.paas.AppService;
 import com.paas.deployra.paas.AppServiceRepository;

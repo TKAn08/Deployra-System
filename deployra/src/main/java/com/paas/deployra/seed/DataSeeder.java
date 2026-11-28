@@ -12,6 +12,7 @@ import com.paas.deployra.entitlement.EntitlementKey;
 import com.paas.deployra.entitlement.EntitlementKeyRepository;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
+import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -19,7 +20,6 @@ import java.math.BigDecimal;
 import java.util.List;
 
 import static com.paas.deployra.entitlement.EntitlementCodes.*;
-import org.hibernate.cfg.Environment;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
 /**
@@ -28,6 +28,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
  * trị đã chỉnh trong DB.
  */
 @Component
+@Order(1)
 public class DataSeeder implements ApplicationRunner {
 
     private record KeyDef(String code, String description, String unit, boolean additive) {
@@ -74,22 +75,19 @@ public class DataSeeder implements ApplicationRunner {
     private final AddonPackageRepository addonPackages;
     private final UserRepository users;
     private final PasswordEncoder passwordEncoder;
-    private final Environment environment;
 
     public DataSeeder(EntitlementKeyRepository keys,
             SubscriptionPlanRepository plans,
             PlanEntitlementRepository planEntitlements,
             AddonPackageRepository addonPackages,
             UserRepository users,
-            PasswordEncoder passwordEncoder,
-            Environment environment) {
+            PasswordEncoder passwordEncoder) {
         this.keys = keys;
         this.plans = plans;
         this.planEntitlements = planEntitlements;
         this.addonPackages = addonPackages;
         this.users = users;
         this.passwordEncoder = passwordEncoder;
-        this.environment = environment;
     }
 
     @Override

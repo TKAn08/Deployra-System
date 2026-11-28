@@ -4,13 +4,9 @@
  */
 package com.paas.deployra.account;
 
-import com.paas.deployra.account.dto.CurrentSubscriptionPlanResponse;
-import com.paas.deployra.account.dto.PaymentResponse;
-import com.paas.deployra.account.dto.SubscibePlanRequest;
+import com.paas.deployra.api.dto.PaymentResponse;
+import com.paas.deployra.api.dto.SubscibePlanRequest;
 import com.paas.deployra.vnpay.VnPayService;
-import java.time.Clock;
-import java.time.Instant;
-import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -29,26 +25,6 @@ public class SubscriptionPlanService {
     private final SubscriptionPlanRepository planRepository;
     private final PaymentService paymentService;
     private final VnPayService vnPayService;
-
-    @Transactional
-    public CurrentSubscriptionPlanResponse getCurrentSubscription(Long userId) {
-        User user = userRepository.findById(userId)
-                .filter(account -> Boolean.TRUE.equals(account.getIsActive()))
-                .orElseThrow(() -> new ResponseStatusException(
-                HttpStatus.UNAUTHORIZED));
-
-        SubscriptionPlan plan = user.getSubscriptionPlan();
-        if (plan == null) {
-            plan = planRepository.findByCode("free")
-                    .orElseThrow(() -> new IllegalStateException(
-                    "Thiếu gói Free trong dữ liệu danh mục"));
-        }
-
-        return CurrentSubscriptionPlanResponse.builder()
-                .planCode(plan.getCode())
-                .planName(plan.getName())
-                .build();
-    }
 
     @Transactional
     public PaymentResponse subscribe(Long userId, SubscibePlanRequest request, String clientIp) {

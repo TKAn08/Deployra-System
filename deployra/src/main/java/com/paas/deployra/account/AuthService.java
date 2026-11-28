@@ -4,14 +4,14 @@
  */
 package com.paas.deployra.account;
 
-import com.paas.deployra.account.dto.LoginRequest;
-import com.paas.deployra.account.dto.LoginResponse;
-import com.paas.deployra.account.dto.RegisterRequest;
+import com.paas.deployra.api.dto.LoginRequest;
+import com.paas.deployra.api.dto.LoginResponse;
+import com.paas.deployra.api.dto.RegisterRequest;
 import io.jsonwebtoken.Claims;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
-import com.paas.deployra.account.dto.RegisterResponse;
+import com.paas.deployra.api.dto.RegisterResponse;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
@@ -51,9 +51,6 @@ public class AuthService {
         return RegisterResponse.builder()
                 .id(savedUser.getId())
                 .email(savedUser.getEmail())
-                .firstName(savedUser.getFirstName())
-                .lastName(savedUser.getLastName())
-                .plan("free")
                 .build();
 
     }

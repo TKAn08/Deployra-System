@@ -21,7 +21,8 @@ import java.time.Instant;
 import java.util.Locale;
 
 /**
- * Một service (app hoặc database) trong project. Bảng tên {@code services}; lớp đặt tên AppService
+ * Một service (app hoặc database) trong project. Bảng tên {@code services}; lớp
+ * đặt tên AppService
  * để khỏi nhầm với annotation {@code @Service} của Spring.
  */
 @Entity
@@ -31,11 +32,17 @@ import java.util.Locale;
 @NoArgsConstructor
 public class AppService {
 
-    public enum Type { APP, DATABASE }
+    public enum Type {
+        APP, DATABASE
+    }
 
-    public enum Status { IDLE, RUNNING, SLEEPING, STOPPED, FAILED, SUSPENDED }
+    public enum Status {
+        IDLE, RUNNING, SLEEPING, STOPPED, FAILED, SUSPENDED
+    }
 
-    public enum SuspendedReason { BANDWIDTH_EXCEEDED, MEMORY_OVER_QUOTA, PLAN_EXPIRED, ABUSE }
+    public enum SuspendedReason {
+        BANDWIDTH_EXCEEDED, MEMORY_OVER_QUOTA, PLAN_EXPIRED, ABUSE
+    }
 
     private static final String ALPHABET = "abcdefghijklmnopqrstuvwxyz0123456789";
     private static final SecureRandom RANDOM = new SecureRandom();
@@ -51,7 +58,10 @@ public class AppService {
     @Column(nullable = false)
     private String name;
 
-    /** Dùng làm subdomain; duy nhất và không bao giờ tái sử dụng (kể cả sau khi xoá mềm). */
+    /**
+     * Dùng làm subdomain; duy nhất và không bao giờ tái sử dụng (kể cả sau khi xoá
+     * mềm).
+     */
     @Column(nullable = false, unique = true, length = 64)
     private String slug;
 
@@ -89,7 +99,10 @@ public class AppService {
     @Column(name = "volume_bytes", nullable = false)
     private long volumeBytes = 0;
 
-    /** Node chạy service. Null khi chỉ có 1 máy. Chưa có FK vì bảng nodes chỉ tạo khi có node thứ 2. */
+    /**
+     * Node chạy service. Null khi chỉ có 1 máy. Chưa có FK vì bảng nodes chỉ tạo
+     * khi có node thứ 2.
+     */
     @Column(name = "node_id")
     private Long nodeId;
 
@@ -109,6 +122,9 @@ public class AppService {
     @Column(name = "deleted_at")
     private Instant deletedAt;
 
+    @Column(name = "replica_count", nullable = false)
+    private int replicaCount = 1;
+
     @PrePersist
     void onCreate() {
         createdAt = Instant.now();
@@ -117,15 +133,18 @@ public class AppService {
         }
     }
 
-    /** Service đang chiếm RAM trong pool của user. Service dừng/idle không chiếm. */
+    /**
+     * Service đang chiếm RAM trong pool của user. Service dừng/idle không chiếm.
+     */
     public boolean reservesMemory() {
         return status == Status.RUNNING || status == Status.SLEEPING;
     }
 
     public static String generateSlug(String name) {
-        String base = name == null ? "" : name.toLowerCase(Locale.ROOT)
-                .replaceAll("[^a-z0-9]+", "-")
-                .replaceAll("^-+|-+$", "");
+        String base = name == null ? ""
+                : name.toLowerCase(Locale.ROOT)
+                        .replaceAll("[^a-z0-9]+", "-")
+                        .replaceAll("^-+|-+$", "");
         if (base.length() > 40) {
             base = base.substring(0, 40).replaceAll("-+$", "");
         }
