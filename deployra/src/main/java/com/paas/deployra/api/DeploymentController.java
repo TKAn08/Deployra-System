@@ -42,9 +42,9 @@ public class DeploymentController {
 
     @Autowired
     public DeploymentController(SourceUploadService uploads,
-                                DeploymentQueryService query,
-                                DeploymentService deploymentService,
-                                ImagePruner imagePruner) {
+            DeploymentQueryService query,
+            DeploymentService deploymentService,
+            ImagePruner imagePruner) {
         this.uploads = uploads;
         this.query = query;
         this.deploymentService = deploymentService;
@@ -90,7 +90,8 @@ public class DeploymentController {
     }
 
     /**
-     * Rollback service về một deployment cũ (sử dụng lại image đã build, không build lại).
+     * Rollback service về một deployment cũ (sử dụng lại image đã build, không
+     * build lại).
      */
     @PostMapping("/{deploymentId}/rollback")
     public ResponseEntity<DeployResponse> rollback(@PathVariable Long serviceId,
