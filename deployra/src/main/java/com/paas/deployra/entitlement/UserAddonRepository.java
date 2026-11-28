@@ -10,7 +10,10 @@ import java.util.Optional;
 
 public interface UserAddonRepository extends JpaRepository<UserAddon, Long> {
 
-    /** Tổng delta của các add-on đang hiệu lực (starts_at <= now < expires_at) cho một khoá. */
+    /**
+     * Tổng delta của các add-on đang hiệu lực (starts_at <= now < expires_at)
+     * cho một khoá.
+     */
     @Query("""
             select coalesce(sum(a.delta), 0L)
             from UserAddon a
@@ -23,8 +26,28 @@ public interface UserAddonRepository extends JpaRepository<UserAddon, Long> {
 
     List<UserAddon> findByUserIdAndExpiresAtAfterOrderByExpiresAtAsc(Long userId, Instant after);
 
-    /** Dùng cho job báo hết hạn add-on RAM. */
+    /**
+     * Dùng cho job báo hết hạn add-on RAM.
+     */
     List<UserAddon> findByExpiresAtBetween(Instant from, Instant to);
 
     Optional<UserAddon> findByPaymentId(Long paymentId);
+    
+    
+    //lấy các đã hết hạn và chưa bị quét
+    @Query("""
+        select a
+        from UserAddon a
+        where a.entitlementKey.code = :key
+          and a.expiresAt <= :now
+          and not exists (
+              select r.id
+              from RamAddonExpiry r
+              where r.userAddon = a
+          )
+        order by a.user.id, a.expiresAt, a.id
+        """)
+    List<UserAddon> findExpiredAddonsPendingReview(
+            @Param("key") String key,
+            @Param("now") Instant now);
 }

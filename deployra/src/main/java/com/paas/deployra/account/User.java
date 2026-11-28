@@ -2,6 +2,8 @@ package com.paas.deployra.account;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
@@ -16,13 +18,19 @@ import lombok.Setter;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import java.time.Instant;
 
-/** Người dùng. {@code subscriptionPlan} = null nghĩa là đang ở gói Free. */
+/**
+ * Người dùng. {@code subscriptionPlan} = null nghĩa là đang ở gói Free.
+ */
 @Entity
-@Table(name = "user")
+@Table(name = "users")
 @Getter
 @Setter
 @NoArgsConstructor
 public class User {
+
+    public enum Role {
+        ROLE_USER, ROLE_ADMIN
+    }
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -55,6 +63,10 @@ public class User {
 
     @Column(name = "last_login")
     private Instant lastLogin;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "role", nullable = false, length = 20)
+    private Role role = Role.ROLE_USER;
 
     @PrePersist
     void onCreate() {

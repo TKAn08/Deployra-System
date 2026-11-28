@@ -1,5 +1,6 @@
 package com.paas.deployra.account;
 
+import com.paas.deployra.entitlement.AddonPackage;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -21,7 +22,8 @@ import java.time.Instant;
 
 /**
  * Một lần thanh toán tạo ra đúng một đăng ký gói hoặc một add-on.
- * {@code providerTxnId} là duy nhất để webhook gửi trùng không tính tiền hai lần.
+ * {@code providerTxnId} là duy nhất để webhook gửi trùng không tính tiền hai
+ * lần.
  */
 @Entity
 @Table(name = "payments")
@@ -30,9 +32,13 @@ import java.time.Instant;
 @NoArgsConstructor
 public class Payment {
 
-    public enum Purpose { PLAN, ADDON }
+    public enum Purpose {
+        PLAN, ADDON
+    }
 
-    public enum Status { PENDING, SUCCEEDED, FAILED, REFUNDED }
+    public enum Status {
+        PENDING, SUCCEEDED, FAILED, REFUNDED
+    }
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -42,10 +48,16 @@ public class Payment {
     @JoinColumn(name = "user_id", nullable = false)
     private User user;
 
-    /** Chỉ có khi mua gói; null khi mua add-on. */
+    /**
+     * Chỉ có khi mua gói; null khi mua add-on.
+     */
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "plan_id")
     private SubscriptionPlan plan;
+    
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "addon_package_id")
+    private AddonPackage addonPackage;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 10)
@@ -55,7 +67,7 @@ public class Payment {
     private BigDecimal amount;
 
     @Column(nullable = false, length = 3)
-    private String currency = "USD";
+    private String currency = "VND";
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)

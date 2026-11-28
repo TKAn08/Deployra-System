@@ -6,6 +6,7 @@ import com.paas.deployra.account.SubscriptionPlan;
 import com.paas.deployra.account.SubscriptionPlanRepository;
 import com.paas.deployra.account.User;
 import com.paas.deployra.account.UserRepository;
+import com.paas.deployra.account.dto.WarningResponse;
 import com.paas.deployra.common.QuotaExceededException;
 import com.paas.deployra.paas.AppService;
 import com.paas.deployra.paas.AppServiceRepository;
@@ -29,9 +30,9 @@ import java.util.Optional;
  * Trung tâm tính hạn mức:
  * <pre>
  *   hạn mức hiệu lực = (override ?? giá trị của gói ?? default_limit) + tổng add-on còn hiệu lực
- * </pre>
- * Add-on chỉ cộng với khoá additive. Giá trị NULL của gói/override nghĩa là không giới hạn nên bỏ qua add-on.
- * Hạ gói không xoá gì: chỉ chặn tạo mới/khởi động khi đang vượt hạn mức.
+ * </pre> Add-on chỉ cộng với khoá additive. Giá trị NULL của gói/override nghĩa
+ * là không giới hạn nên bỏ qua add-on. Hạ gói không xoá gì: chỉ chặn tạo
+ * mới/khởi động khi đang vượt hạn mức.
  */
 @Service
 @Transactional(readOnly = true)
@@ -41,8 +42,8 @@ public class EntitlementService {
 
     private static final long MB = 1024L * 1024L;
     private static final long GB = 1024L * MB;
-    private static final List<AppService.Status> MEMORY_RESERVING =
-            List.of(AppService.Status.RUNNING, AppService.Status.SLEEPING);
+    private static final List<AppService.Status> MEMORY_RESERVING
+            = List.of(AppService.Status.RUNNING, AppService.Status.SLEEPING);
 
     private final UserRepository users;
     private final SubscriptionPlanRepository plans;
@@ -57,20 +58,22 @@ public class EntitlementService {
     private final BandwidthUsageDailyRepository bandwidth;
     private final Clock clock;
     private final long nodeAllocatableMb;
+    private final RamAddonExpiryRepository ramAddonExpiryRepository;
 
     public EntitlementService(UserRepository users,
-                              SubscriptionPlanRepository plans,
-                              EntitlementKeyRepository keys,
-                              PlanEntitlementRepository planEntitlements,
-                              UserEntitlementOverrideRepository overrides,
-                              UserAddonRepository addons,
-                              ProjectRepository projects,
-                              AppServiceRepository services,
-                              DeploymentRepository deployments,
-                              SourceUploadRepository uploads,
-                              BandwidthUsageDailyRepository bandwidth,
-                              Clock clock,
-                              @Value("${deployra.node.allocatable-mb:3072}") long nodeAllocatableMb) {
+            SubscriptionPlanRepository plans,
+            EntitlementKeyRepository keys,
+            PlanEntitlementRepository planEntitlements,
+            UserEntitlementOverrideRepository overrides,
+            UserAddonRepository addons,
+            ProjectRepository projects,
+            AppServiceRepository services,
+            DeploymentRepository deployments,
+            SourceUploadRepository uploads,
+            BandwidthUsageDailyRepository bandwidth,
+            Clock clock,
+            @Value("${deployra.node.allocatable-mb:3072}") long nodeAllocatableMb,
+            RamAddonExpiryRepository ramAddonExpiryRepository) {
         this.users = users;
         this.plans = plans;
         this.keys = keys;
@@ -84,10 +87,10 @@ public class EntitlementService {
         this.bandwidth = bandwidth;
         this.clock = clock;
         this.nodeAllocatableMb = nodeAllocatableMb;
+        this.ramAddonExpiryRepository = ramAddonExpiryRepository;
     }
 
     // ------------------------------------------------------------------ hạn mức
-
     public Limit effectiveLimit(Long userId, String key) {
         EntitlementKey definition = keys.findById(key)
                 .orElseThrow(() -> new IllegalArgumentException("Khoá hạn mức không tồn tại: " + key));
@@ -116,19 +119,35 @@ public class EntitlementService {
         return Limit.of(total);
     }
 
-    /** Tính năng bật/tắt như private_repos, auto_deploy, always_on, custom_domains. */
+    public Optional<WarningResponse> findRamWarning(Long userId) {
+        return ramAddonExpiryRepository.findFirstByUserAddonUserIdAndStatusOrderByDeadlineAsc(userId, RamAddonExpiry.Status.WAITING)
+                .map(warning -> WarningResponse.builder()
+                .allocatedMb(warning.getAllocatedMb())
+                .limitMb(warning.getLimitMb())
+                .checkedAt(warning.getCheckedAt())
+                .deadline(warning.getDeadline())
+                .build());
+
+    }
+
+    /**
+     * Tính năng bật/tắt như private_repos, auto_deploy, always_on,
+     * custom_domains.
+     */
     public boolean hasFeature(Long userId, String key) {
         return effectiveLimit(userId, key).enabled();
     }
 
-    /** Trần RAM của một service = min(hạn mức theo gói, RAM thật có thể bán của node). Add-on không nâng trần này. */
+    /**
+     * Trần RAM của một service = min(hạn mức theo gói, RAM thật có thể bán của
+     * node). Add-on không nâng trần này.
+     */
     public long perServiceMemoryCeilingMb(Long userId) {
         Limit limit = effectiveLimit(userId, EntitlementCodes.MAX_MEMORY_MB_PER_SERVICE);
         return limit.unlimited() ? nodeAllocatableMb : Math.min(limit.value(), nodeAllocatableMb);
     }
 
     // ------------------------------------------------------------------ đã dùng
-
     public long usedProjects(Long userId) {
         return projects.countByOwnerIdAndDeletedAtIsNull(userId);
     }
@@ -137,7 +156,10 @@ public class EntitlementService {
         return services.countByProjectOwnerIdAndTypeAndDeletedAtIsNull(userId, type);
     }
 
-    /** RAM đã cấp = tổng memory_mb của service RUNNING hoặc SLEEPING. Service dừng không chiếm RAM. */
+    /**
+     * RAM đã cấp = tổng memory_mb của service RUNNING hoặc SLEEPING. Service
+     * dừng không chiếm RAM.
+     */
     public long ramAllocatedMb(Long userId) {
         return services.sumMemoryMb(userId, MEMORY_RESERVING);
     }
@@ -146,7 +168,9 @@ public class EntitlementService {
         return bandwidth.sumBytesOut(userId, month.atDay(1), month.plusMonths(1).atDay(1));
     }
 
-    /** Ảnh còn giữ + zip chưa xoá + volume database. */
+    /**
+     * Ảnh còn giữ + zip chưa xoá + volume database.
+     */
     public long storageUsedBytes(Long userId) {
         return deployments.sumRetainedImageBytes(userId)
                 + uploads.sumSizeBytes(userId)
@@ -168,13 +192,15 @@ public class EntitlementService {
     }
 
     // ------------------------------------------------------------------ kiểm tra trước khi làm
-
     public void requireCanCreateProject(Long userId) {
         require(userId, EntitlementCodes.MAX_PROJECTS, usedProjects(userId), 1,
                 "Đã đạt số project tối đa của gói hiện tại");
     }
 
-    /** Tạo service (chưa chạy nên chưa chiếm RAM trong pool, nhưng không được vượt trần RAM/service). */
+    /**
+     * Tạo service (chưa chạy nên chưa chiếm RAM trong pool, nhưng không được
+     * vượt trần RAM/service).
+     */
     public void requireCanCreateService(Long userId, AppService.Type type, int memoryMb) {
         String countKey = type == AppService.Type.DATABASE
                 ? EntitlementCodes.MAX_DATABASES : EntitlementCodes.MAX_SERVICES;
@@ -190,12 +216,15 @@ public class EntitlementService {
         }
     }
 
-    /** Chạy hoặc khởi động lại một service: service chưa chiếm RAM thì pool RAM phải còn đủ chỗ. */
+    /**
+     * Chạy hoặc khởi động lại một service: service chưa chiếm RAM thì pool RAM
+     * phải còn đủ chỗ.
+     */
     public void requireCanStartService(Long userId, AppService service) {
         if (service.getStatus() == AppService.Status.SUSPENDED) {
             throw new QuotaExceededException(EntitlementCodes.MAX_TOTAL_MEMORY_MB,
                     "Service đang bị tạm ngưng" + (service.getSuspendedReason() == null
-                            ? "" : " (" + service.getSuspendedReason() + ")"));
+                    ? "" : " (" + service.getSuspendedReason() + ")"));
         }
         if (service.reservesMemory()) {
             return; // deploy lại service đang chạy không tăng RAM đã cấp
@@ -230,7 +259,6 @@ public class EntitlementService {
     }
 
     // ------------------------------------------------------------------ báo cáo cho giao diện
-
     public List<QuotaLine> quotaReport(Long userId) {
         YearMonth month = currentMonth();
         List<QuotaLine> lines = new ArrayList<>();
@@ -245,7 +273,6 @@ public class EntitlementService {
     }
 
     // ------------------------------------------------------------------ nội bộ
-
     private QuotaLine line(Long userId, String key, long used) {
         return new QuotaLine(key, effectiveLimit(userId, key), used);
     }

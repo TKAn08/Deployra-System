@@ -6,7 +6,9 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
 import java.time.Clock;
+import org.springframework.scheduling.annotation.EnableScheduling;
 
+@EnableScheduling
 @Configuration
 public class AppConfig {
 

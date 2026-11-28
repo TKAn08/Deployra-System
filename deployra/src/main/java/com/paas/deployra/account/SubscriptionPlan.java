@@ -34,7 +34,7 @@ public class SubscriptionPlan {
     private BigDecimal price = BigDecimal.ZERO;
 
     @Column(nullable = false, length = 3)
-    private String currency = "USD";
+    private String currency = "VND";
 
     @Column(name = "billing_period_days", nullable = false)
     private int billingPeriodDays = 30;
