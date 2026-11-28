@@ -153,6 +153,17 @@ Tích hợp gọi hợp đồng `ContainerRuntime` (Người 1) và `Entitlement
 
 ---
 
+### 2.3. Rollback & Dọn Image Cũ — `DeploymentController` + `ImagePruner` (Mục 3 `PHAN_CONG.md`)
+
+| Method | Endpoint | Chức năng | Response Code |
+| :--- | :--- | :--- | :--- |
+| `POST` | `/api/services/{serviceId}/deployments/{deploymentId}/rollback` | Rollback về image cũ (bỏ qua bước build, dùng lại image đã có, zero-downtime) | `202 ACCEPTED` |
+| `POST` | `/api/services/{serviceId}/deployments/prune` | Dọn thủ công các image cũ vượt quá `deployments_retained` và đặt `imagePruned = true` | `200 OK` |
+
+* **Tự động dọn image:** Sau mỗi lần deploy hoặc rollback thành công (`LIVE`), `DeploymentService` tự động gọi `ImagePruner.pruneService(serviceId)` để xóa các image cũ vượt quá hạn mức `deployments_retained` (luôn giữ lại image đang `LIVE`, đang deploy, hoặc đang được dùng chung bởi rollback).
+
+---
+
 ## 4. Kiểm Thử Nhanh Qua Lệnh cURL
 
 ```bash

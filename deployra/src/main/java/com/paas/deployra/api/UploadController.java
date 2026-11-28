@@ -56,7 +56,8 @@ public class UploadController {
 
     @PostMapping(value = "/uploads", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<UploadResponse> upload(@PathVariable Long serviceId,
-            @RequestParam("file") MultipartFile file, @RequestParam("userId") Long userId)
+            @RequestParam("file") MultipartFile file,
+            @RequestParam(value = "userId", required = false) Long userId)
             throws IOException {
         SourceUpload result;
         try (InputStream in = file.getInputStream()) {

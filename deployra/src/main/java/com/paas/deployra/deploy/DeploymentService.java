@@ -1,5 +1,7 @@
 package com.paas.deployra.deploy;
 
+import com.paas.deployra.common.InvalidRequestException;
+import com.paas.deployra.common.NotFoundException;
 import com.paas.deployra.entitlement.EntitlementService;
 import com.paas.deployra.paas.*;
 import com.paas.deployra.paas.Deployment.Status;
@@ -43,6 +45,7 @@ public class DeploymentService implements DeploymentServiceInterface {
     private final EnvFileImporter envFileImporter;
     private final EntitlementService entitlements;
     private final ProjectBuildPreparer buildPreparer;
+    private final ImagePruner imagePruner;
     private final Clock clock;
     private final DeploymentProperties props;
     private final TransactionTemplate tx;
@@ -62,6 +65,7 @@ public class DeploymentService implements DeploymentServiceInterface {
             EnvFileImporter envFileImporter,
             EntitlementService entitlements,
             ProjectBuildPreparer buildPreparer,
+            ImagePruner imagePruner,
             Clock clock,
             DeploymentProperties props,
             TransactionTemplate tx) {
@@ -75,6 +79,7 @@ public class DeploymentService implements DeploymentServiceInterface {
         this.envFileImporter = envFileImporter;
         this.entitlements = entitlements;
         this.buildPreparer = buildPreparer;
+        this.imagePruner = imagePruner;
         this.clock = clock;
         this.props = props;
         this.tx = tx;
@@ -128,6 +133,71 @@ public class DeploymentService implements DeploymentServiceInterface {
         return doEnqueue(service, trigger, upload);
     }
 
+    /**
+     * Rollback service về một deployment cũ theo ID.
+     */
+    public Deployment rollbackById(Long userId, Long serviceId, Long targetDeploymentId) {
+        AppService service = (userId == null
+                ? services.findById(serviceId).filter(s -> s.getDeletedAt() == null)
+                : services.findByIdAndProjectOwnerIdAndDeletedAtIsNull(serviceId, userId))
+                .orElseThrow(() -> new NotFoundException("Không tìm thấy service"));
+
+        if (service.getType() != AppService.Type.APP) {
+            throw new InvalidRequestException("Chỉ hỗ trợ rollback cho service kiểu APP");
+        }
+
+        Deployment target = deployments.findById(targetDeploymentId)
+                .filter(d -> d.getService().getId().equals(serviceId))
+                .orElseThrow(() -> new NotFoundException("Không tìm thấy deployment: " + targetDeploymentId));
+
+        return rollback(service, target);
+    }
+
+    @Override
+    public Deployment rollback(AppService service, Deployment targetDeployment) {
+        Objects.requireNonNull(service, "service bắt buộc");
+        Objects.requireNonNull(targetDeployment, "targetDeployment bắt buộc");
+
+        if (targetDeployment.getImage() == null || targetDeployment.getImage().isBlank()) {
+            throw new InvalidRequestException("Deployment đích chưa có image để rollback");
+        }
+        if (targetDeployment.isImagePruned()) {
+            throw new InvalidRequestException("Image của deployment này đã bị dọn, không thể rollback");
+        }
+        if (targetDeployment.getStatus() == Status.LIVE) {
+            throw new InvalidRequestException("Deployment này đang chạy (LIVE), không cần rollback");
+        }
+
+        if (service.getProject() != null && service.getProject().getOwner() != null) {
+            entitlements.requireCanStartService(service.getProject().getOwner().getId(), service);
+        }
+
+        Deployment saved = tx.execute(s -> {
+            deployments.findFirstByServiceIdAndStatusOrderByCreatedAtDesc(service.getId(), Status.QUEUED)
+                    .ifPresent(old -> {
+                        old.transitionTo(Status.CANCELLED, clock.instant());
+                        old.setBuildLog(appendLine(old.getBuildLog(), "CANCELLED: bị huỷ bởi rollback mới"));
+                        deployments.save(old);
+                    });
+            Deployment d = new Deployment();
+            d.setService(service);
+            d.setTrigger(Trigger.ROLLBACK);
+            d.setSourceType(targetDeployment.getSourceType());
+            d.setCommitSha(targetDeployment.getCommitSha());
+            d.setUpload(targetDeployment.getUpload());
+            d.setImage(targetDeployment.getImage());
+            d.setImageBytes(targetDeployment.getImageBytes());
+            d.setImagePruned(false);
+            d.setBuildSeconds(0);
+            d.setStatus(Status.QUEUED);
+            d.setBuildLog("Rollback về deployment #" + targetDeployment.getId()
+                    + " (image: " + targetDeployment.getImage() + ")");
+            return deployments.save(d);
+        });
+        queue.offer(saved.getId());
+        return saved;
+    }
+
     private Deployment doEnqueue(AppService service, Trigger trigger, SourceUpload upload) {
         Deployment saved = tx.execute(s -> {
             // Huỷ deploy QUEUED cũ nếu có
@@ -166,7 +236,7 @@ public class DeploymentService implements DeploymentServiceInterface {
         }
     }
 
-    private void runOne(Long id) {
+    void runOne(Long id) {
         Deployment peek = tx.execute(s -> deployments.findById(id).orElse(null));
         if (peek == null || peek.getStatus() != Status.QUEUED)
             return;
@@ -210,52 +280,61 @@ public class DeploymentService implements DeploymentServiceInterface {
         try {
             AppService svc = d.getService();
             Long userId = svc.getProject().getOwner().getId();
-
-            // 1e: hạn mức build
-            try {
-                entitlements.requireCanBuild(userId);
-            } catch (RuntimeException e) {
-                fail(d, "Vượt gói: " + msg(e));
-                return;
-            }
-
-            // 1c: tải mã nguồn
-            workDir = Files.createTempDirectory("paas-deploy-" + d.getId() + "-");
             Consumer<String> logSink = logSink(d);
-            Path sourceDir = fetchSource(d, workDir, logSink);
-            saveIfChanged(d);
 
-            // Chuẩn bị biến .env cho build và tự sinh Dockerfile Nginx nếu là dự án Frontend
-            buildPreparer.prepare(svc, sourceDir, logSink);
+            String imageTag;
+            boolean isRollback = d.getTrigger() == Trigger.ROLLBACK
+                    && d.getImage() != null && !d.getImage().isBlank();
 
-            if (!Files.isRegularFile(sourceDir.resolve(DOCKERFILE))) {
-                fail(d, "Thiếu Dockerfile ở gốc mã nguồn");
-                return;
+            if (isRollback) {
+                imageTag = d.getImage();
+                appendLog(d, "Rollback: bỏ qua bước build, sử dụng lại image " + imageTag);
+            } else {
+                // 1e: hạn mức build
+                try {
+                    entitlements.requireCanBuild(userId);
+                } catch (RuntimeException e) {
+                    fail(d, "Vượt gói: " + msg(e));
+                    return;
+                }
+
+                // 1c: tải mã nguồn
+                workDir = Files.createTempDirectory("paas-deploy-" + d.getId() + "-");
+                Path sourceDir = fetchSource(d, workDir, logSink);
+                saveIfChanged(d);
+
+                // Chuẩn bị biến .env cho build và tự sinh Dockerfile Nginx nếu là dự án Frontend
+                buildPreparer.prepare(svc, sourceDir, logSink);
+
+                if (!Files.isRegularFile(sourceDir.resolve(DOCKERFILE))) {
+                    fail(d, "Thiếu Dockerfile ở gốc mã nguồn");
+                    return;
+                }
+
+                // Import .env/.env.example (có thể tạo biến mới → phải làm trước khi build)
+                try {
+                    envFileImporter.importInto(svc, sourceDir, logSink);
+                } catch (RuntimeException e) {
+                    log.warn("Import .env lỗi cho deploy {}: {}", d.getId(), msg(e));
+                }
+
+                // 1d: build
+                imageTag = imageTag(d);
+                appendLog(d, "Bắt đầu build: " + imageTag);
+                long t0 = System.nanoTime();
+                try {
+                    runtime.buildImage(sourceDir, DOCKERFILE, imageTag, logSink, props.getBuildTimeout());
+                } catch (RuntimeException e) {
+                    fail(d, "Build thất bại: " + msg(e));
+                    return;
+                }
+                int secs = (int) TimeUnit.NANOSECONDS.toSeconds(System.nanoTime() - t0);
+                d.setImage(imageTag);
+                d.setImagePruned(false);
+                d.setImageBytes(0L); // ContainerRuntime chưa có API lấy size — xem ghi chú
+                d.setBuildSeconds(secs);
+                save(d);
             }
-
-            // Import .env/.env.example (có thể tạo biến mới → phải làm trước khi build)
-            try {
-                envFileImporter.importInto(svc, sourceDir, logSink);
-            } catch (RuntimeException e) {
-                log.warn("Import .env lỗi cho deploy {}: {}", d.getId(), msg(e));
-            }
-
-            // 1d: build
-            String imageTag = imageTag(d);
-            appendLog(d, "Bắt đầu build: " + imageTag);
-            long t0 = System.nanoTime();
-            try {
-                runtime.buildImage(sourceDir, DOCKERFILE, imageTag, logSink, props.getBuildTimeout());
-            } catch (RuntimeException e) {
-                fail(d, "Build thất bại: " + msg(e));
-                return;
-            }
-            int secs = (int) TimeUnit.NANOSECONDS.toSeconds(System.nanoTime() - t0);
-            d.setImage(imageTag);
-            d.setImagePruned(false);
-            d.setImageBytes(0L); // ContainerRuntime chưa có API lấy size — xem ghi chú
-            d.setBuildSeconds(secs);
-            save(d);
 
             moveTo(d, Status.DEPLOYING);
 
@@ -300,7 +379,8 @@ public class DeploymentService implements DeploymentServiceInterface {
             }
 
             activate(d, svc); // d → LIVE, deploy LIVE cũ → INACTIVE, services.status → RUNNING
-            appendLog(d, "Deploy thành công");
+            appendLog(d, isRollback ? "Rollback thành công" : "Deploy thành công");
+            pruneImagesSafely(d, svc.getId());
         } catch (IOException e) {
             log.error("Lỗi I/O trong pipeline deploy {}", d.getId(), e);
             safeFail(d, "Lỗi đọc/ghi file: " + msg(e));
@@ -364,6 +444,20 @@ public class DeploymentService implements DeploymentServiceInterface {
             svc.setStatus(AppService.Status.RUNNING);
             services.save(svc);
         });
+    }
+
+    private void pruneImagesSafely(Deployment d, Long serviceId) {
+        if (imagePruner == null) {
+            return;
+        }
+        try {
+            ImagePruner.PruneResult result = imagePruner.pruneService(serviceId);
+            if (result.prunedCount() > 0) {
+                appendLog(d, "Đã dọn " + result.prunedCount() + " image cũ theo hạn mức deployments_retained");
+            }
+        } catch (RuntimeException e) {
+            log.warn("Dọn image cũ lỗi cho service {}: {}", serviceId, msg(e));
+        }
     }
 
     private void fail(Deployment d, String reason) {

@@ -27,4 +27,9 @@ public interface DeploymentServiceInterface {
      * {@code source_uploads}).
      */
     Deployment enqueue(AppService service, Deployment.Trigger trigger, SourceUpload upload);
+
+    /**
+     * Rollback về một deployment cũ đã build thành công (dùng lại {@code image} cũ, không build lại).
+     */
+    Deployment rollback(AppService service, Deployment targetDeployment);
 }

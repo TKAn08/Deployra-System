@@ -159,10 +159,10 @@ class ProjectBuildPreparerTest {
         Path dockerfile = dir.resolve("Dockerfile");
         assertTrue(Files.exists(dockerfile));
         String content = Files.readString(dockerfile);
-        assertTrue(content.contains("FROM nginx:alpine"));
-        assertTrue(content.contains("COPY . /usr/share/nginx/html"));
-        assertTrue(content.contains("EXPOSE 80"));
-        assertEquals(80, service.getPort());
+        assertTrue(content.contains("FROM nginxinc/nginx-unprivileged:alpine"));
+        assertTrue(content.contains("COPY --chown=101:101 . /usr/share/nginx/html"));
+        assertTrue(content.contains("EXPOSE 8080"));
+        assertEquals(8080, service.getPort());
         verify(services).save(service);
     }
 }
